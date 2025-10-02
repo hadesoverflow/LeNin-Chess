@@ -5,10 +5,10 @@ export const PLAYER_STARTING_KP = 1500;
 export const PLAYER_ELIMINATION_THRESHOLD = -2000;
 
 export const CHARACTERS_LIST = [
-  { name: "Dinosaur",     img: "https://img.icons8.com/plasticine/200/dinosaur.png" },
-  { name: "Zenmarx",      img: "https://img.icons8.com/color/480/karl-marx.png" },
-  { name: "Comrad Bunny", img: "https://img.icons8.com/plasticine/200/rabbit.png" },
-  { name: "Marxwell",     img: "https://img.icons8.com/plasticine/200/cat.png" },
+  { name: "Dinosaur",     img: "characters/Dinosaur.png" },
+  { name: "Zenmarx",      img: "characters/Zenmarx.png" },
+  { name: "Comrad Bunny", img: "characters/ComradBunny.png" },
+  { name: "Marxwell",     img: "characters/Marxwell.png" },
 ];
 
 export const CARDS_INFO: { [key in CardType]: Omit<Card, 'id'> & { icon: string } } = {
