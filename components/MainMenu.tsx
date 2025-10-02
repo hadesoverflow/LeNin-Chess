@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface MainMenuProps {
-  onNavigate: (target: 'local_setup' | 'create_room' | 'join_room') => void;
+  onNavigate: (target: 'local_setup') => void;
 }
 
 const MainMenu: React.FC<MainMenuProps> = ({ onNavigate }) => {
@@ -16,13 +16,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onNavigate }) => {
         <p className="text-stone-700 mb-8 text-lg">Chào mừng đến với cuộc cách mạng tri thức!</p>
         <div className="space-y-4">
           <button onClick={() => onNavigate('local_setup')} className={buttonClass}>
-            Chơi Đơn
-          </button>
-          <button onClick={() => onNavigate('create_room')} className={buttonClass}>
-            Tạo Phòng Nhiều Người
-          </button>
-          <button onClick={() => onNavigate('join_room')} className={buttonClass}>
-            Tham Gia Phòng
+            Chơi Mới
           </button>
         </div>
       </div>
