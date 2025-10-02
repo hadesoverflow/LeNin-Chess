@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
-import type { Player, AppState, GameMode, GameState, Room, Session, TileData, AnsweredQuestion, PendingAction, QuizState, CardType } from './types';
+import type { Player, AppState, GameState, Room, TileData, AnsweredQuestion, PendingAction, QuizState, CardType } from './types';
 import { PLAYER_COLORS, PLAYER_STARTING_KP, TILES, CHARACTERS_LIST, CARD_COSTS, CARDS_INFO } from './constants';
 import GameBoard from './components/GameBoard';
 import PlayerDashboard from './components/PlayerDashboard';
@@ -7,10 +7,8 @@ import GameLog from './components/GameLog';
 import GameSetup, { GameSetupConfig } from './components/GameSetup';
 import Modal from './components/Modal';
 import MainMenu from './components/MainMenu';
-import Lobby from './components/Lobby';
 import { gameService, LOCAL_ROOM_ID } from './services/gameService';
 import ControlPanel from './components/ControlPanel';
-import JoinRoom from './components/JoinRoom';
 import { getGroupColors } from './utils';
 import QuestionModal from './components/QuestionModal';
 import CurrentPlayerStats from './components/CurrentPlayerStats';
@@ -23,9 +21,6 @@ interface PlayerConfig {
 
 const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>('main_menu');
-    const [gameMode, setGameMode] = useState<GameMode | null>(null);
-    const [session, setSession] = useState<Session | null>(null);
-    const [room, setRoom] = useState<Room | null>(null);
     const [gameState, setGameState] = useState<GameState | null>(null);
     const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
     const [selectedTile, setSelectedTile] = useState<TileData | null>(null);
@@ -36,13 +31,9 @@ const App: React.FC = () => {
     // Subscribe to game state updates
     useEffect(() => {
         const handleUpdate = (updatedRoom: Room) => {
-            console.log("Received room update:", updatedRoom);
-            if (gameMode === 'online') {
-                setRoom(updatedRoom);
-            }
             if (updatedRoom.gameState) {
                 setGameState(updatedRoom.gameState);
-                if (appState !== 'playing' && appState !== 'gameover') {
+                if (appState === 'main_menu' || appState === 'local_setup') {
                     setAppState('playing');
                 }
                  if (updatedRoom.gameState.winner && appState !== 'gameover') {
@@ -51,43 +42,35 @@ const App: React.FC = () => {
             }
         };
 
-        let subscribedRoomId: string | null = null;
-        if (gameMode === 'local') {
-            subscribedRoomId = LOCAL_ROOM_ID;
-        } else if (gameMode === 'online' && room) {
-            subscribedRoomId = room.id;
+        if (appState === 'playing' || appState === 'gameover') {
+            gameService.subscribe(LOCAL_ROOM_ID, handleUpdate);
+            return () => gameService.unsubscribe(LOCAL_ROOM_ID, handleUpdate);
         }
-
-        if (subscribedRoomId) {
-            gameService.subscribe(subscribedRoomId, handleUpdate);
-            return () => gameService.unsubscribe(subscribedRoomId!, handleUpdate);
-        }
-    }, [gameMode, room, appState]);
+    }, [appState]);
     
     // Attack animation orchestrator
     useEffect(() => {
         if (!gameState?.attackAnimation) return;
 
         const { stage } = gameState.attackAnimation;
-        const roomId = room?.id || LOCAL_ROOM_ID;
 
         switch(stage) {
             case 'moving_to_target':
                 // After 800ms for the piece to travel
-                setTimeout(() => gameService.proceedAttackAnimation(roomId), 800);
+                setTimeout(() => gameService.proceedAttackAnimation(LOCAL_ROOM_ID), 800);
                 break;
             case 'impacting':
                  // After 500ms for the shake animation
-                setTimeout(() => gameService.proceedAttackAnimation(roomId), 500);
+                setTimeout(() => gameService.proceedAttackAnimation(LOCAL_ROOM_ID), 500);
                 break;
             case 'attacker_returning':
                 // After 800ms for the piece to return
-                setTimeout(() => gameService.proceedAttackAnimation(roomId), 800);
+                setTimeout(() => gameService.proceedAttackAnimation(LOCAL_ROOM_ID), 800);
                 break;
              // 'target_moving_back' is handled by a callback within the game service
         }
 
-    }, [gameState?.attackAnimation, room?.id, gameMode]);
+    }, [gameState?.attackAnimation]);
 
 
     useLayoutEffect(() => {
@@ -140,41 +123,15 @@ const App: React.FC = () => {
         const initialState = gameService.createLocalGame(playerConfigs);
         gameService.registerLocalGame(initialState);
         setGameState(initialState);
-        setGameMode('local');
         setAppState('playing');
-    };
-
-    const handleCreateRoom = (config: GameSetupConfig) => {
-        setGameMode('online');
-        const { room, session } = gameService.createRoom(config.name, config.characterImg, config.numBots);
-        setRoom(room);
-        setSession(session);
-        setAppState('lobby');
-    };
-
-    const handleJoinSuccess = (room: Room, session: Session) => {
-        setGameMode('online');
-        setRoom(room);
-        setSession(session);
-        setAppState('lobby');
-    };
-    
-    const handleStartOnlineGame = () => {
-        if (room && session?.id === room.hostId) {
-            gameService.startGame(room.id);
-        }
     };
     
     const handleClearLog = useCallback(() => {
-        const roomId = gameMode === 'local' ? LOCAL_ROOM_ID : room?.id;
-        if (roomId) gameService.clearLog(roomId);
-    }, [gameMode, room]);
+        gameService.clearLog(LOCAL_ROOM_ID);
+    }, []);
 
     const handleReset = () => {
         setAppState('main_menu');
-        setGameMode(null);
-        setSession(null);
-        setRoom(null);
         setGameState(null);
         setModal(null);
         setSelectedTile(null);
@@ -184,11 +141,9 @@ const App: React.FC = () => {
     const handleTileClick = (tileData: TileData) => setSelectedTile(tileData);
     
     const handleQuestionAnswer = (answerIndex: number) => {
-        const roomId = gameMode === 'local' ? LOCAL_ROOM_ID : room?.id;
-        const sessionId = gameMode === 'local' ? gameState?.players[gameState.currentPlayerIndex].sessionId : session?.id;
-        if (roomId && sessionId) {
-            gameService.handleQuestionAnswer(roomId, sessionId, answerIndex);
-        }
+        if (!gameState) return;
+        const sessionId = gameState.players[gameState.currentPlayerIndex].sessionId;
+        gameService.handleQuestionAnswer(LOCAL_ROOM_ID, sessionId, answerIndex);
     };
 
     const handleExportHistory = () => {
@@ -209,48 +164,42 @@ const App: React.FC = () => {
     };
 
     // --- Action Handlers for new mechanics ---
-    const getRoomAndSessionId = () => {
-        const roomId = gameMode === 'local' ? LOCAL_ROOM_ID : room?.id;
-        const sessionId = gameMode === 'local' ? gameState?.players[gameState.currentPlayerIndex].sessionId : session?.id;
-        return { roomId, sessionId };
+    const getSessionId = () => {
+        return gameState?.players[gameState.currentPlayerIndex].sessionId;
     };
 
     const handleCardPurchase = (cardType: CardType | null) => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.resolveCardPurchase(roomId, sessionId, cardType);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.resolveCardPurchase(LOCAL_ROOM_ID, sessionId, cardType);
     };
     const handleAttack = (targetPlayerId: number | null) => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.resolveAttackAction(roomId, sessionId, targetPlayerId);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.resolveAttackAction(LOCAL_ROOM_ID, sessionId, targetPlayerId);
     };
     const handleOpportunityLink = (targetPlayerId: number | null) => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.resolveOpportunityLinkAction(roomId, sessionId, targetPlayerId);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.resolveOpportunityLinkAction(LOCAL_ROOM_ID, sessionId, targetPlayerId);
     };
     const handleInvestmentBet = (betAmount: number) => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.resolveInvestmentBetAction(roomId, sessionId, betAmount);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.resolveInvestmentBetAction(LOCAL_ROOM_ID, sessionId, betAmount);
     };
     const handleCloseTileEffectModal = () => {
-        const roomId = gameMode === 'local' ? LOCAL_ROOM_ID : room?.id;
-        if (roomId) {
-            gameService.executePendingTileEffect(roomId);
-        }
+        gameService.executePendingTileEffect(LOCAL_ROOM_ID);
     };
     
     const handleUseLifeline = (type: 'eliminate' | 'ai_help') => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.requestLifeline(roomId, sessionId, type);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.requestLifeline(LOCAL_ROOM_ID, sessionId, type);
     };
 
     const handleResolveLifelinePurchase = (confirm: boolean) => {
-        const { roomId, sessionId } = getRoomAndSessionId();
-        if (roomId && sessionId) gameService.resolveLifelinePurchase(roomId, sessionId, confirm);
+        const sessionId = getSessionId();
+        if (sessionId) gameService.resolveLifelinePurchase(LOCAL_ROOM_ID, sessionId, confirm);
     };
 
     const handleCloseAiHelp = () => {
-        const { roomId } = getRoomAndSessionId();
-        if (roomId) gameService.clearAiHelp(roomId);
+        gameService.clearAiHelp(LOCAL_ROOM_ID);
     };
 
 
@@ -337,9 +286,6 @@ const App: React.FC = () => {
         switch (appState) {
             case 'main_menu': return <MainMenu onNavigate={(target) => setAppState(target)} />;
             case 'local_setup': return <GameSetup mode="local" onStart={handleStartLocalGame} onBack={() => setAppState('main_menu')} />;
-            case 'create_room': return <GameSetup mode="online" onStart={handleCreateRoom} onBack={() => setAppState('main_menu')} />;
-            case 'join_room': return <JoinRoom onJoinSuccess={handleJoinSuccess} onBack={() => setAppState('main_menu')} />;
-            case 'lobby': return room && session && <Lobby room={room} session={session} onStartGame={handleStartOnlineGame} onBack={handleReset} />;
             case 'playing':
             case 'gameover':
                 if (!gameState?.players) return <div>Đang tải...</div>;
@@ -373,7 +319,7 @@ const App: React.FC = () => {
                             {/* Center Panel (Game Board) */}
                             <div className="flex flex-col items-center justify-center min-h-0">
                                 <GameBoard ref={boardRef} highlightedTile={highlightedTile} tilePositions={tilePositions} players={players} currentPlayerId={currentPlayer.id} onTileClick={handleTileClick} attackAnimation={attackAnimation}>
-                                     <ControlPanel currentPlayer={currentPlayer} onRollDice={() => gameService.rollDice(room?.id || LOCAL_ROOM_ID, currentPlayer.sessionId)} dice={dice} canRoll={canRoll && !currentPlayer.isEliminated && (gameMode === 'local' || session?.id === currentPlayer.sessionId)} isRolling={isRolling} />
+                                     <ControlPanel currentPlayer={currentPlayer} onRollDice={() => gameService.rollDice(LOCAL_ROOM_ID, currentPlayer.sessionId)} dice={dice} canRoll={canRoll && !currentPlayer.isEliminated && !currentPlayer.isBot} isRolling={isRolling} />
                                 </GameBoard>
                             </div>
                             
