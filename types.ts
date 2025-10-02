@@ -51,9 +51,9 @@ export interface Card {
   description: string;
 }
 
-export type GameMode = 'local' | 'online';
+export type GameMode = 'local';
 
-export type AppState = 'main_menu' | 'local_setup' | 'create_room' | 'join_room' | 'lobby' | 'playing' | 'gameover';
+export type AppState = 'main_menu' | 'local_setup' | 'playing' | 'gameover';
 
 export interface Session {
   id: string;
