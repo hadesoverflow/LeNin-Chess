@@ -19,15 +19,15 @@ const Lobby: React.FC<LobbyProps> = ({ room, session, onStartGame, onBack }) => 
         alert(`Đã sao chép mã phòng: ${room.id}`);
     }
     
-    const handleAddBot = () => {
+    const handleAddBot = async () => {
         if (isHost) {
-            gameService.addBot(room.id, session.id);
+            await gameService.addBot(room.id, session.id);
         }
     }
-    
-    const handleRemoveBot = (botSessionId: string) => {
+
+    const handleRemoveBot = async (botSessionId: string) => {
         if (isHost) {
-            gameService.removeBot(room.id, session.id, botSessionId);
+            await gameService.removeBot(room.id, session.id, botSessionId);
         }
     }
 

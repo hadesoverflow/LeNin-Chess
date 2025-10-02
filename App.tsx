@@ -127,9 +127,9 @@ const App: React.FC = () => {
         setAppState('playing');
     };
 
-    const handleCreateRoom = (playerName: string, characterImg: string, numBots: number) => {
+    const handleCreateRoom = async (playerName: string, characterImg: string, numBots: number) => {
         setGameMode('online');
-        const { room, session } = gameService.createRoom(playerName, characterImg, numBots);
+        const { room, session } = await gameService.createRoom(playerName, characterImg, numBots);
         setRoom(room);
         setSession(session);
         setAppState('lobby');
@@ -142,9 +142,9 @@ const App: React.FC = () => {
         setAppState('lobby');
     };
     
-    const handleStartOnlineGame = () => {
+    const handleStartOnlineGame = async () => {
         if (room && session?.id === room.hostId) {
-            gameService.startGame(room.id);
+            await gameService.startGame(room.id);
         }
     };
     

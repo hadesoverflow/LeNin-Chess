@@ -1,6 +1,7 @@
 import type { Room, Session, GameState, Player, GameLogEntry, TileData, AnsweredQuestion, Question, Answer, CardType, QuizType, QuestionContext } from '../types';
 import { PLAYER_COLORS, PLAYER_STARTING_KP, TILES, CHARACTERS_LIST, CARDS_INFO, CARD_COSTS, PLAYER_ELIMINATION_THRESHOLD } from '../constants';
 import { QUESTIONS } from '../questions';
+import { supabase } from '../lib/supabase';
 
 
 type GameStateListener = (room: Room) => void;
@@ -20,9 +21,10 @@ const LIFELINE_COSTS = {
 class GameService {
     private rooms: Map<string, Room> = new Map();
     private listeners: Map<string, GameStateListener[]> = new Map();
+    private realtimeSubscriptions: Map<string, any> = new Map();
     
     // --- Room Management ---
-    public createRoom(hostName: string, characterImg: string, numBots: number): { room: Room; session: Session } {
+    public async createRoom(hostName: string, characterImg: string, numBots: number): Promise<{ room: Room; session: Session }> {
         const roomId = this.generateRoomId();
         const hostSession = this.createSession(hostName, characterImg);
         const newRoom: Room = {
@@ -31,43 +33,102 @@ class GameService {
             sessions: [hostSession],
             gameState: null,
         };
-        
+
         let availableChars = CHARACTERS_LIST.filter(c => c.img !== characterImg);
 
         for(let i=0; i < numBots; i++) {
             if (newRoom.sessions.length >= 4) break;
-            if (availableChars.length === 0) break; // No more unique characters
+            if (availableChars.length === 0) break;
 
             const botChar = availableChars.splice(Math.floor(Math.random() * availableChars.length), 1)[0];
             const botSession = this.createSession(`Bot ${i + 1}`, botChar.img, true);
             newRoom.sessions.push(botSession);
         }
 
+        await supabase.from('rooms').insert({
+            id: roomId,
+            host_id: hostSession.id,
+            game_state: null
+        });
+
+        for (const session of newRoom.sessions) {
+            await supabase.from('sessions').insert({
+                id: session.id,
+                room_id: roomId,
+                name: session.name,
+                character_img: session.characterImg,
+                is_bot: session.isBot || false
+            });
+        }
+
         this.rooms.set(roomId, newRoom);
+        this.subscribeToRoom(roomId);
         return { room: newRoom, session: hostSession };
     }
 
-    public joinRoom(roomId: string, playerName: string, characterImg: string): { room: Room; session: Session } {
-        const room = this.rooms.get(roomId.toUpperCase());
+    public async joinRoom(roomId: string, playerName: string, characterImg: string): Promise<{ room: Room; session: Session }> {
+        const upperRoomId = roomId.toUpperCase();
+
+        let room = this.rooms.get(upperRoomId);
         if (!room) {
-            throw new Error("Phòng không tồn tại!");
+            const { data: roomData, error } = await supabase
+                .from('rooms')
+                .select('*')
+                .eq('id', upperRoomId)
+                .maybeSingle();
+
+            if (error || !roomData) {
+                throw new Error("Phòng không tồn tại!");
+            }
+
+            const { data: sessionsData } = await supabase
+                .from('sessions')
+                .select('*')
+                .eq('room_id', upperRoomId);
+
+            const sessions: Session[] = (sessionsData || []).map(s => ({
+                id: s.id,
+                name: s.name,
+                characterImg: s.character_img,
+                isBot: s.is_bot
+            }));
+
+            room = {
+                id: roomData.id,
+                hostId: roomData.host_id,
+                sessions,
+                gameState: roomData.game_state
+            };
+            this.rooms.set(upperRoomId, room);
+            this.subscribeToRoom(upperRoomId);
         }
+
         if (room.sessions.length >= 4) {
             throw new Error("Phòng đã đầy!");
         }
         if (room.gameState) {
             throw new Error("Ván chơi đã bắt đầu!");
         }
+
         const newSession = this.createSession(playerName, characterImg);
         room.sessions.push(newSession);
-        this.notifyListeners(room.id);
+
+        await supabase.from('sessions').insert({
+            id: newSession.id,
+            room_id: upperRoomId,
+            name: newSession.name,
+            character_img: newSession.characterImg,
+            is_bot: newSession.isBot || false
+        });
+
+        await this.syncRoomToDatabase(upperRoomId);
         return { room, session: newSession };
     }
 
-    public addBot(roomId: string, hostSessionId: string) {
+    public async addBot(roomId: string, hostSessionId: string) {
         const room = this.rooms.get(roomId);
         if (!room || room.hostId !== hostSessionId || room.sessions.length >= 4) return;
-        
+
         const usedImages = room.sessions.map(s => s.characterImg);
         let availableChars = CHARACTERS_LIST.filter(c => !usedImages.includes(c.img));
         if (availableChars.length === 0) {
@@ -75,20 +136,31 @@ class GameService {
         }
         const botChar = availableChars[Math.floor(Math.random() * availableChars.length)];
         const botNumber = room.sessions.filter(s => s.isBot).length + 1;
-    
+
         const botSession = this.createSession(`Bot ${botNumber}`, botChar.img, true);
         room.sessions.push(botSession);
-        this.notifyListeners(roomId);
+
+        await supabase.from('sessions').insert({
+            id: botSession.id,
+            room_id: roomId,
+            name: botSession.name,
+            character_img: botSession.characterImg,
+            is_bot: true
+        });
+
+        await this.syncRoomToDatabase(roomId);
     }
     
-    public removeBot(roomId: string, hostSessionId: string, botSessionId: string) {
+    public async removeBot(roomId: string, hostSessionId: string, botSessionId: string) {
         const room = this.rooms.get(roomId);
         if (!room || room.hostId !== hostSessionId) return;
 
         const botIndex = room.sessions.findIndex(s => s.id === botSessionId && s.isBot);
         if (botIndex > -1) {
             room.sessions.splice(botIndex, 1);
-            this.notifyListeners(roomId);
+
+            await supabase.from('sessions').delete().eq('id', botSessionId);
+            await this.syncRoomToDatabase(roomId);
         }
     }
     
@@ -114,13 +186,14 @@ class GameService {
         this.rooms.set(LOCAL_ROOM_ID, room);
     }
 
-    public startGame(roomId: string) {
+    public async startGame(roomId: string) {
         const room = this.rooms.get(roomId);
         if (!room) return;
 
         room.gameState = this.initializeGameState(room.sessions);
         this.addLog(room.id, `Trò chơi bắt đầu! Lượt của ${room.gameState.players[0].name}.`);
-        this.notifyListeners(roomId);
+
+        await this.syncRoomToDatabase(roomId);
         this.checkBotTurn(roomId);
     }
 
@@ -1204,12 +1277,79 @@ class GameService {
         }
     }
 
+    private async syncRoomToDatabase(roomId: string) {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+
+        await supabase
+            .from('rooms')
+            .update({
+                game_state: room.gameState,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', roomId);
+    }
+
+    private subscribeToRoom(roomId: string) {
+        if (this.realtimeSubscriptions.has(roomId)) return;
+
+        const channel = supabase
+            .channel(`room:${roomId}`)
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+                async (payload) => {
+                    if (payload.eventType === 'UPDATE') {
+                        const room = this.rooms.get(roomId);
+                        if (room) {
+                            room.gameState = payload.new.game_state;
+                            this.notifyListeners(roomId);
+                        }
+                    }
+                }
+            )
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'sessions', filter: `room_id=eq.${roomId}` },
+                async () => {
+                    const { data: sessionsData } = await supabase
+                        .from('sessions')
+                        .select('*')
+                        .eq('room_id', roomId);
+
+                    const room = this.rooms.get(roomId);
+                    if (room && sessionsData) {
+                        room.sessions = sessionsData.map(s => ({
+                            id: s.id,
+                            name: s.name,
+                            characterImg: s.character_img,
+                            isBot: s.is_bot
+                        }));
+                        this.notifyListeners(roomId);
+                    }
+                }
+            )
+            .subscribe();
+
+        this.realtimeSubscriptions.set(roomId, channel);
+    }
+
     private notifyListeners(roomId: string) {
         const room = this.rooms.get(roomId);
         const roomListeners = this.listeners.get(roomId);
         if (room && roomListeners) {
             const roomCopy = JSON.parse(JSON.stringify(room));
             roomListeners.forEach(listener => listener(roomCopy));
+        }
+
+        if (roomId !== LOCAL_ROOM_ID) {
+            this.syncRoomToDatabase(roomId);
+        }
+    }
+
+    public unsubscribeFromRoom(roomId: string) {
+        const channel = this.realtimeSubscriptions.get(roomId);
+        if (channel) {
+            channel.unsubscribe();
+            this.realtimeSubscriptions.delete(roomId);
         }
     }
 }

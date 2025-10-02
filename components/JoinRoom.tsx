@@ -14,12 +14,12 @@ const JoinRoom: React.FC<JoinRoomProps> = ({ onJoinSuccess, onBack }) => {
   const [selectedCharacter, setSelectedCharacter] = useState(CHARACTERS_LIST[0]);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (name.trim() && roomId.trim()) {
       try {
-        const { room, session } = gameService.joinRoom(roomId.trim(), name.trim(), selectedCharacter.img);
+        const { room, session } = await gameService.joinRoom(roomId.trim(), name.trim(), selectedCharacter.img);
         onJoinSuccess(room, session);
       } catch (err) {
           if (err instanceof Error) {
