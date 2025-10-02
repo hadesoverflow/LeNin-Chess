@@ -69,49 +69,37 @@ class GameService {
     public async joinRoom(roomId: string, playerName: string, characterImg: string): Promise<{ room: Room; session: Session }> {
         const upperRoomId = roomId.toUpperCase();
 
-        let room = this.rooms.get(upperRoomId);
-        if (!room) {
-            const { data: roomData, error } = await supabase
-                .from('rooms')
-                .select('*')
-                .eq('id', upperRoomId)
-                .maybeSingle();
+        const { data: roomData, error } = await supabase
+            .from('rooms')
+            .select('*')
+            .eq('id', upperRoomId)
+            .maybeSingle();
 
-            if (error || !roomData) {
-                throw new Error("Phòng không tồn tại!");
-            }
-
-            const { data: sessionsData } = await supabase
-                .from('sessions')
-                .select('*')
-                .eq('room_id', upperRoomId);
-
-            const sessions: Session[] = (sessionsData || []).map(s => ({
-                id: s.id,
-                name: s.name,
-                characterImg: s.character_img,
-                isBot: s.is_bot
-            }));
-
-            room = {
-                id: roomData.id,
-                hostId: roomData.host_id,
-                sessions,
-                gameState: roomData.game_state
-            };
-            this.rooms.set(upperRoomId, room);
-            this.subscribeToRoom(upperRoomId);
+        if (error || !roomData) {
+            throw new Error("Phòng không tồn tại!");
         }
 
-        if (room.sessions.length >= 4) {
+        const { data: sessionsData } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('room_id', upperRoomId);
+
+        const sessions: Session[] = (sessionsData || []).map(s => ({
+            id: s.id,
+            name: s.name,
+            characterImg: s.character_img,
+            isBot: s.is_bot
+        }));
+
+        if (sessions.length >= 4) {
             throw new Error("Phòng đã đầy!");
         }
-        if (room.gameState) {
+        if (roomData.game_state) {
             throw new Error("Ván chơi đã bắt đầu!");
         }
 
         const newSession = this.createSession(playerName, characterImg);
-        room.sessions.push(newSession);
+        sessions.push(newSession);
 
         await supabase.from('sessions').insert({
             id: newSession.id,
@@ -121,7 +109,18 @@ class GameService {
             is_bot: newSession.isBot || false
         });
 
-        await this.syncRoomToDatabase(upperRoomId);
+        const room: Room = {
+            id: roomData.id,
+            hostId: roomData.host_id,
+            sessions,
+            gameState: roomData.game_state
+        };
+
+        this.rooms.set(upperRoomId, room);
+        if (!this.realtimeSubscriptions.has(upperRoomId)) {
+            this.subscribeToRoom(upperRoomId);
+        }
+
         return { room, session: newSession };
     }
 
@@ -1302,7 +1301,7 @@ class GameService {
                         const room = this.rooms.get(roomId);
                         if (room) {
                             room.gameState = payload.new.game_state;
-                            this.notifyListeners(roomId);
+                            this.notifyListenersOnly(roomId);
                         }
                     }
                 }
@@ -1323,7 +1322,7 @@ class GameService {
                             characterImg: s.character_img,
                             isBot: s.is_bot
                         }));
-                        this.notifyListeners(roomId);
+                        this.notifyListenersOnly(roomId);
                     }
                 }
             )
@@ -1332,14 +1331,17 @@ class GameService {
         this.realtimeSubscriptions.set(roomId, channel);
     }
 
-    private notifyListeners(roomId: string) {
+    private notifyListenersOnly(roomId: string) {
         const room = this.rooms.get(roomId);
         const roomListeners = this.listeners.get(roomId);
         if (room && roomListeners) {
             const roomCopy = JSON.parse(JSON.stringify(room));
             roomListeners.forEach(listener => listener(roomCopy));
         }
+    }
 
+    private notifyListeners(roomId: string) {
+        this.notifyListenersOnly(roomId);
         if (roomId !== LOCAL_ROOM_ID) {
             this.syncRoomToDatabase(roomId);
         }
