@@ -4,17 +4,17 @@ import { PLAYER_COLORS, PLAYER_STARTING_KP, TILES, CHARACTERS_LIST, CARD_COSTS, 
 import GameBoard from './components/GameBoard';
 import PlayerDashboard from './components/PlayerDashboard';
 import GameLog from './components/GameLog';
-import SinglePlayerSetup from './components/SinglePlayerSetup';
+import GameSetup, { GameSetupConfig } from './components/GameSetup';
 import Modal from './components/Modal';
 import MainMenu from './components/MainMenu';
 import Lobby from './components/Lobby';
 import { gameService, LOCAL_ROOM_ID } from './services/gameService';
 import ControlPanel from './components/ControlPanel';
-import CreateRoom from './components/CreateRoom';
 import JoinRoom from './components/JoinRoom';
 import { getGroupColors } from './utils';
 import QuestionModal from './components/QuestionModal';
 import CurrentPlayerStats from './components/CurrentPlayerStats';
+import SoundManager from './components/SoundManager';
 
 interface PlayerConfig {
     name: string;
@@ -33,6 +33,7 @@ const App: React.FC = () => {
     const [tilePositions, setTilePositions] = useState<{ [key: number]: { top: number; left: number; width: number; height: number; } }>({});
     const boardRef = useRef<HTMLDivElement>(null);
     const [isEndGameModalOpen, setIsEndGameModalOpen] = useState(false);
+    const [isMuted, setIsMuted] = useState(false);
 
     // Subscribe to game state updates
     useEffect(() => {
@@ -118,8 +119,28 @@ const App: React.FC = () => {
             return () => window.removeEventListener('resize', calculatePositions);
         }
     }, [appState]);
+
+    const toggleMute = () => setIsMuted(prev => !prev);
     
-    const handleStartLocalGame = (playerConfigs: PlayerConfig[]) => {
+    const handleStartLocalGame = (config: GameSetupConfig) => {
+        const playerConfigs: PlayerConfig[] = [{ name: config.name, characterImg: config.characterImg, isBot: false }];
+
+        const availableBotChars = CHARACTERS_LIST.filter(c => c.img !== config.characterImg);
+        // Shuffle to get random bots
+        for (let i = availableBotChars.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [availableBotChars[i], availableBotChars[j]] = [availableBotChars[j], availableBotChars[i]];
+        }
+
+        const botsToCreate = availableBotChars.slice(0, config.numBots);
+        botsToCreate.forEach((botChar, index) => {
+            playerConfigs.push({
+                name: `Bot ${index + 1}`,
+                characterImg: botChar.img,
+                isBot: true
+            });
+        });
+
         const initialState = gameService.createLocalGame(playerConfigs);
         gameService.registerLocalGame(initialState);
         setGameState(initialState);
@@ -127,9 +148,9 @@ const App: React.FC = () => {
         setAppState('playing');
     };
 
-    const handleCreateRoom = async (playerName: string, characterImg: string, numBots: number) => {
+    const handleCreateRoom = (config: GameSetupConfig) => {
         setGameMode('online');
-        const { room, session } = await gameService.createRoom(playerName, characterImg, numBots);
+        const { room, session } = gameService.createRoom(config.name, config.characterImg, config.numBots);
         setRoom(room);
         setSession(session);
         setAppState('lobby');
@@ -142,9 +163,9 @@ const App: React.FC = () => {
         setAppState('lobby');
     };
     
-    const handleStartOnlineGame = async () => {
+    const handleStartOnlineGame = () => {
         if (room && session?.id === room.hostId) {
-            await gameService.startGame(room.id);
+            gameService.startGame(room.id);
         }
     };
     
@@ -319,8 +340,8 @@ const App: React.FC = () => {
     const renderContent = () => {
         switch (appState) {
             case 'main_menu': return <MainMenu onNavigate={(target) => setAppState(target)} />;
-            case 'local_setup': return <SinglePlayerSetup onStartGame={handleStartLocalGame} onBack={() => setAppState('main_menu')} />;
-            case 'create_room': return <CreateRoom onCreateRoom={handleCreateRoom} onBack={() => setAppState('main_menu')} />;
+            case 'local_setup': return <GameSetup mode="local" onStart={handleStartLocalGame} onBack={() => setAppState('main_menu')} />;
+            case 'create_room': return <GameSetup mode="online" onStart={handleCreateRoom} onBack={() => setAppState('main_menu')} />;
             case 'join_room': return <JoinRoom onJoinSuccess={handleJoinSuccess} onBack={() => setAppState('main_menu')} />;
             case 'lobby': return room && session && <Lobby room={room} session={session} onStartGame={handleStartOnlineGame} onBack={handleReset} />;
             case 'playing':
@@ -453,7 +474,37 @@ const App: React.FC = () => {
         }
     };
 
-    return <div className="min-h-screen">{renderContent()}</div>;
+    const isQuestionVisible = !!gameState?.currentQuestion || !!gameState?.quizState;
+
+    return (
+        <div className="min-h-screen">
+            <SoundManager
+                appState={appState}
+                isQuestionVisible={isQuestionVisible}
+                isMuted={isMuted}
+            />
+            {renderContent()}
+            <div className="fixed bottom-4 right-4 z-50">
+                <button
+                    onClick={toggleMute}
+                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors shadow-lg"
+                    aria-label={isMuted ? "Bật tiếng" : "Tắt tiếng"}
+                    title={isMuted ? "Bật tiếng" : "Tắt tiếng"}
+                >
+                    {isMuted ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clipRule="evenodd" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l-4-4m0 4l4-4" />
+                        </svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                    )}
+                </button>
+            </div>
+        </div>
+    );
 };
 
 export default App;
