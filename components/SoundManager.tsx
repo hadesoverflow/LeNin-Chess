@@ -4,7 +4,7 @@ import type { AppState } from '../types';
 interface SoundManagerProps {
   appState: AppState;
   isQuestionVisible: boolean;
-  isMuted: boolean;
+  volume: number;
 }
 
 // Audio sources
@@ -12,7 +12,7 @@ const MENU_MUSIC_SRC = "audio/Soundtrack1.mp3";
 const GAME_MUSIC_SRC = "audio/Soundtrack2.mp3";
 const QUESTION_MUSIC_SRC = "audio/Soundtrack3.mp3";
 
-const SoundManager: React.FC<SoundManagerProps> = ({ appState, isQuestionVisible, isMuted }) => {
+const SoundManager: React.FC<SoundManagerProps> = ({ appState, isQuestionVisible, volume }) => {
   const menuAudioRef = useRef<HTMLAudioElement>(null);
   const gameAudioRef = useRef<HTMLAudioElement>(null);
   const questionAudioRef = useRef<HTMLAudioElement>(null);
@@ -31,39 +31,47 @@ const SoundManager: React.FC<SoundManagerProps> = ({ appState, isQuestionVisible
     }
   };
 
-  // Set initial volumes and mute state
-  useEffect(() => {
-    const audios = [menuAudioRef.current, gameAudioRef.current, questionAudioRef.current];
-    audios.forEach(audio => {
-      if (audio) {
-        audio.muted = isMuted;
-        audio.loop = true;
-      }
-    });
-    if (menuAudioRef.current) menuAudioRef.current.volume = 0.5;
-    if (gameAudioRef.current) gameAudioRef.current.volume = 0.5;
-    if (questionAudioRef.current) questionAudioRef.current.volume = 0.7;
-  }, [isMuted]);
-
-  // Main logic to switch tracks
+  // Effect to manage volumes based on global volume and ducking
   useEffect(() => {
     const menuAudio = menuAudioRef.current;
     const gameAudio = gameAudioRef.current;
     const questionAudio = questionAudioRef.current;
 
+    // Set loop attribute on mount
+    if (menuAudio) menuAudio.loop = true;
+    if (gameAudio) gameAudio.loop = true;
+    if (questionAudio) questionAudio.loop = true;
+
+    // Apply global volume
+    if (menuAudio) menuAudio.volume = 0.5 * volume;
+    if (questionAudio) questionAudio.volume = 0.7 * volume;
+    
+    // Apply ducking
+    if (gameAudio) {
+      gameAudio.volume = (isQuestionVisible ? 0.1 : 0.5) * volume;
+    }
+  }, [volume, isQuestionVisible]);
+
+  // Effect to switch tracks (play/pause)
+  useEffect(() => {
+    const menuAudio = menuAudioRef.current;
+    const gameAudio = gameAudioRef.current;
+    const questionAudio = questionAudioRef.current;
+
+    // If volume is 0, pause everything.
+    if (volume === 0) {
+      pauseAudio(menuAudio);
+      pauseAudio(gameAudio);
+      pauseAudio(questionAudio);
+      return;
+    }
+
     if (isQuestionVisible) {
-      // Question is visible
       playAudio(questionAudio);
       pauseAudio(menuAudio);
-      if (gameAudio) {
-        gameAudio.volume = 0.1; // Duck the game music
-        playAudio(gameAudio);
-      }
+      playAudio(gameAudio); // Keep it playing, but its volume is ducked by the other effect
     } else {
-      // Question is not visible
       pauseAudio(questionAudio);
-      if (gameAudio) gameAudio.volume = 0.5; // Restore game music volume
-
       const isGameScreen = appState === 'playing' || appState === 'gameover';
 
       if (isGameScreen) {
@@ -74,7 +82,7 @@ const SoundManager: React.FC<SoundManagerProps> = ({ appState, isQuestionVisible
         pauseAudio(gameAudio);
       }
     }
-  }, [appState, isQuestionVisible, isMuted]); // isMuted is here to re-trigger play attempts if user unmutes
+  }, [appState, isQuestionVisible, volume]);
 
   return (
     <>
