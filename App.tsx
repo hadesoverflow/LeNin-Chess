@@ -33,7 +33,21 @@ const App: React.FC = () => {
     const [tilePositions, setTilePositions] = useState<{ [key: number]: { top: number; left: number; width: number; height: number; } }>({});
     const boardRef = useRef<HTMLDivElement>(null);
     const [isEndGameModalOpen, setIsEndGameModalOpen] = useState(false);
-    const [isMuted, setIsMuted] = useState(false);
+    const [volume, setVolume] = useState(0.5); // 0 to 1
+    const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+    const volumeControlRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (volumeControlRef.current && !volumeControlRef.current.contains(event.target as Node)) {
+                setShowVolumeSlider(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
     // Subscribe to game state updates
     useEffect(() => {
@@ -119,8 +133,6 @@ const App: React.FC = () => {
             return () => window.removeEventListener('resize', calculatePositions);
         }
     }, [appState]);
-
-    const toggleMute = () => setIsMuted(prev => !prev);
     
     const handleStartLocalGame = (config: GameSetupConfig) => {
         const playerConfigs: PlayerConfig[] = [{ name: config.name, characterImg: config.characterImg, isBot: false }];
@@ -475,33 +487,62 @@ const App: React.FC = () => {
     };
 
     const isQuestionVisible = !!gameState?.currentQuestion || !!gameState?.quizState;
+    
+    const VolumeIcon = () => {
+        if (volume === 0) {
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clipRule="evenodd" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l-4-4m0 4l4-4" />
+                </svg>
+            );
+        }
+        if (volume <= 0.5) {
+            return (
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+            );
+        }
+        return (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+        );
+    };
 
     return (
         <div className="min-h-screen">
             <SoundManager
                 appState={appState}
                 isQuestionVisible={isQuestionVisible}
-                isMuted={isMuted}
+                volume={volume}
             />
             {renderContent()}
-            <div className="fixed bottom-4 right-4 z-50">
-                <button
-                    onClick={toggleMute}
-                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors shadow-lg"
-                    aria-label={isMuted ? "Bật tiếng" : "Tắt tiếng"}
-                    title={isMuted ? "Bật tiếng" : "Tắt tiếng"}
-                >
-                    {isMuted ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clipRule="evenodd" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l-4-4m0 4l4-4" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                        </svg>
+            <div ref={volumeControlRef} className="fixed top-4 right-4 z-50">
+                <div className="relative flex flex-col items-center">
+                    <button
+                        onClick={() => setShowVolumeSlider(prev => !prev)}
+                        className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors shadow-lg"
+                        aria-label="Điều khiển âm lượng"
+                        title="Điều khiển âm lượng"
+                    >
+                        <VolumeIcon />
+                    </button>
+                    {showVolumeSlider && (
+                        <div className="absolute top-14 bg-black/60 p-3 rounded-lg shadow-lg backdrop-blur-sm">
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={volume}
+                                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                className="w-24 h-2 bg-gray-400 rounded-lg appearance-none cursor-pointer accent-yellow-300"
+                            />
+                        </div>
                     )}
-                </button>
+                </div>
             </div>
         </div>
     );
