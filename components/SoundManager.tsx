@@ -7,10 +7,10 @@ interface SoundManagerProps {
   volume: number;
 }
 
-// Audio sources
-const MENU_MUSIC_SRC = "audio/Soundtrack1.mp3";
-const GAME_MUSIC_SRC = "audio/Soundtrack2.mp3";
-const QUESTION_MUSIC_SRC = "audio/Soundtrack3.mp3";
+// Audio sources (files in public/ directory)
+const MENU_MUSIC_SRC = "/audio/Soundtrack1.mp3";
+const GAME_MUSIC_SRC = "/audio/Soundtrack2.mp3";
+const QUESTION_MUSIC_SRC = "/audio/Soundtrack3.mp3";
 
 const SoundManager: React.FC<SoundManagerProps> = ({ appState, isQuestionVisible, volume }) => {
   const menuAudioRef = useRef<HTMLAudioElement>(null);
